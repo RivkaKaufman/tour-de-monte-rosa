@@ -62,6 +62,11 @@
   }
   .locate-btn.active { background:#e6f0ff; }
   .locate-btn.error { background:#fde0e0; }
+  .locate-status {
+    margin-top:4px; max-width:200px; background:#1a2634; color:#e8edf2; font:600 11px 'Segoe UI',sans-serif;
+    padding:5px 8px; border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,.4); line-height:1.35;
+  }
+  .locate-status.error { background:#4a2020; color:#f0c0c0; }
   .you-dot {
     width:16px; height:16px; border-radius:50%; background:#1e88e5; border:3px solid #fff;
     box-shadow:0 0 0 2px rgba(30,136,229,.5), 0 1px 4px rgba(0,0,0,.5);
@@ -159,36 +164,55 @@ L.control.scale({ imperial:false }).addTo(map);
 const LocateControl = L.Control.extend({
   options:{ position:'topright' },
   onAdd(){
-    const btn = L.DomUtil.create('div', 'locate-btn leaflet-bar');
+    const wrap = L.DomUtil.create('div');
+    const btn = L.DomUtil.create('div', 'locate-btn leaflet-bar', wrap);
     btn.innerHTML = '📍';
     btn.title = 'Show my location on the trail';
-    L.DomEvent.disableClickPropagation(btn);
+    const status = L.DomUtil.create('div', 'locate-status', wrap);
+    status.id = 'locateStatus';
+    status.style.display = 'none';
+    L.DomEvent.disableClickPropagation(wrap);
     L.DomEvent.on(btn, 'click', () => toggleLocate(btn));
     this._btn = btn;
-    return btn;
+    return wrap;
   }
 });
 map.addControl(new LocateControl());
 
 let youMarker = null, youAccuracy = null, watchingLocation = false;
 
+function setLocateStatus(text, isError){
+  const el = document.getElementById('locateStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.display = text ? 'block' : 'none';
+  el.classList.toggle('error', !!isError);
+}
+
 function toggleLocate(btn){
-  if (!navigator.geolocation) { btn.classList.add('error'); btn.title = 'Geolocation is not supported by this browser'; return; }
+  if (!navigator.geolocation) {
+    btn.classList.add('error');
+    setLocateStatus('Geolocation not supported by this browser', true);
+    return;
+  }
   if (watchingLocation) {
     map.stopLocate();
     watchingLocation = false;
     btn.classList.remove('active');
+    setLocateStatus('');
     if (youMarker) { map.removeLayer(youMarker); youMarker = null; }
     if (youAccuracy) { map.removeLayer(youAccuracy); youAccuracy = null; }
     return;
   }
   btn.classList.remove('error');
+  setLocateStatus('Locating…');
   map.locate({ watch:true, enableHighAccuracy:true, setView:true, maxZoom:16 });
   watchingLocation = true;
   btn.classList.add('active');
 }
 
 map.on('locationfound', (e) => {
+  setLocateStatus(`±${Math.round(e.accuracy)} m accuracy`);
   if (!youMarker) {
     youMarker = L.marker(e.latlng, {
       icon: L.divIcon({ className:'', html:'<div class="you-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] }),
@@ -204,7 +228,14 @@ map.on('locationfound', (e) => {
 map.on('locationerror', (e) => {
   watchingLocation = false;
   const btn = document.querySelector('.locate-btn');
-  if (btn) { btn.classList.remove('active'); btn.classList.add('error'); btn.title = 'Could not get your location: ' + e.message; }
+  if (btn) { btn.classList.remove('active'); btn.classList.add('error'); }
+  // e.code: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT
+  const hints = {
+    1: 'Permission denied — check Location permission for this site in your browser settings',
+    2: 'Position unavailable — check that Location Services is turned on for this device/browser',
+    3: 'Timed out — try again with a clearer view of the sky'
+  };
+  setLocateStatus(hints[e.code] || ('Location error: ' + e.message), true);
 });
 
 function popupHtml(s){
@@ -232,11 +263,16 @@ stages.forEach((s, i) => {
   const end = s.pts[s.pts.length-1];
   const icon = L.divIcon({ className:'', html:`<div class="num-icon" style="background:${s.color}">${s.day}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
   const m = L.marker(end, { icon }).bindPopup(popupHtml(s)).addTo(map);
-  m.on('click', () => selectDay(i, false));
   const sleepLabel = s.sleep.replace(/\s*\([^)]*\)/, '');
+  // permanent:true stops Leaflet auto-toggling the tooltip on mouseover/mouseout (which otherwise
+  // fires right after a click/tap and immediately hides it); open/close is instead driven only by our click handler.
   m.bindTooltip(`<span class="sleep-label-bed" style="border-left-color:${s.color}">🛏 ${sleepLabel}</span>`, {
     permanent:true, direction:'right', offset:[13,0], className:'sleep-label', interactive:false
-  }).openTooltip();
+  });
+  m.on('click', () => {
+    selectDay(i, false);
+    if (m.isTooltipOpen()) m.closeTooltip(); else m.openTooltip();
+  });
   markers.push(m);
 });
 
@@ -251,6 +287,10 @@ L.polyline(detour, { color:'#d32f2f', weight:3, dashArray:'7 7', opacity:0.95 })
   .addTo(map);
 
 map.fitBounds(allBounds.pad(0.06));
+
+// permanent tooltips force themselves open once right after binding (deferred a tick past this script);
+// closing synchronously here doesn't stick, so defer the initial close past that.
+setTimeout(() => { markers.forEach(m => m.closeTooltip()); }, 0);
 
 // sidebar
 const list = document.getElementById('dayList');
