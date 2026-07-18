@@ -49,6 +49,13 @@
     width:26px; height:26px; display:flex; align-items:center; justify-content:center;
     font:700 12px 'Segoe UI',sans-serif; box-shadow:0 1px 4px rgba(0,0,0,.5);
   }
+  .leaflet-tooltip.sleep-label {
+    background:#1a2634; color:#e8edf2; border:1px solid rgba(255,255,255,.3);
+    border-radius:4px; padding:3px 8px 3px 6px; font:600 11.5px 'Segoe UI',sans-serif;
+    box-shadow:0 1px 4px rgba(0,0,0,.45); white-space:nowrap; opacity:0.95;
+  }
+  .leaflet-tooltip.sleep-label::before { border-right-color:#1a2634; border-left-color:#1a2634; }
+  .sleep-label-bed { border-left:3px solid; padding-left:6px; }
   @media (max-width:760px){
     #app { flex-direction:column; }
     #sidebar { width:100%; max-height:45vh; order:2; }
@@ -162,6 +169,10 @@ stages.forEach((s, i) => {
   const icon = L.divIcon({ className:'', html:`<div class="num-icon" style="background:${s.color}">${s.day}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
   const m = L.marker(end, { icon }).bindPopup(popupHtml(s)).addTo(map);
   m.on('click', () => selectDay(i, false));
+  const sleepLabel = s.sleep.replace(/\s*\([^)]*\)/, '');
+  m.bindTooltip(`<span class="sleep-label-bed" style="border-left-color:${s.color}">🛏 ${sleepLabel}</span>`, {
+    permanent:true, direction:'right', offset:[13,0], className:'sleep-label', interactive:false
+  }).openTooltip();
   markers.push(m);
 });
 
