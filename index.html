@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tour de Monte Rosa — 24 Aug – 2 Sep 2026</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; font-family:'Segoe UI', system-ui, sans-serif; }
+  #app { display:flex; height:100vh; }
+  #sidebar {
+    width:360px; min-width:300px; overflow-y:auto; background:#1a2634; color:#e8edf2;
+    display:flex; flex-direction:column;
+  }
+  #map { flex:1; }
+  .sb-header { padding:16px 18px 12px; border-bottom:1px solid #2e3f52; }
+  .sb-header h1 { font-size:17px; font-weight:600; letter-spacing:.3px; }
+  .sb-header .sub { font-size:12px; color:#8fa3b8; margin-top:3px; }
+  .totals { display:flex; gap:8px; padding:10px 18px; border-bottom:1px solid #2e3f52; flex-wrap:wrap; }
+  .tot { background:#233246; border-radius:6px; padding:6px 10px; flex:1; min-width:70px; text-align:center; }
+  .tot .v { font-size:14px; font-weight:600; }
+  .tot .l { font-size:10px; color:#8fa3b8; text-transform:uppercase; letter-spacing:.5px; }
+  .warn { font-size:11px; background:#4a3620; color:#f0c987; padding:8px 18px; line-height:1.45; border-bottom:1px solid #2e3f52; }
+  .days { flex:1; }
+  .day {
+    padding:10px 14px 10px 12px; border-bottom:1px solid #223146; cursor:pointer;
+    border-left:5px solid transparent; transition:background .15s;
+  }
+  .day:hover { background:#223146; }
+  .day.active { background:#2a3d55; }
+  .day .top { display:flex; align-items:baseline; gap:8px; }
+  .day .num {
+    font-size:11px; font-weight:700; color:#fff; border-radius:10px; padding:1px 7px; flex-shrink:0;
+  }
+  .day .date { font-size:11px; color:#8fa3b8; }
+  .day .stage { font-size:10px; color:#5f7590; margin-left:auto; }
+  .day .route { font-size:13px; font-weight:600; margin:4px 0 3px; line-height:1.3; }
+  .day .sleep { font-size:11.5px; color:#a9bccd; margin-bottom:4px; }
+  .day .stats { font-size:11px; color:#8fa3b8; display:flex; gap:10px; flex-wrap:wrap; }
+  .day .stats b { color:#c9d6e2; font-weight:600; }
+  .footer { padding:9px 18px; font-size:10.5px; color:#5f7590; border-top:1px solid #2e3f52; line-height:1.4; }
+  .leaflet-popup-content { font-size:12.5px; line-height:1.5; margin:12px 14px; }
+  .leaflet-popup-content .pt { font-weight:700; font-size:13px; margin-bottom:2px; }
+  .leaflet-popup-content .pd { color:#667; font-size:11px; margin-bottom:5px; }
+  .num-icon {
+    background:#1a2634; color:#fff; border:2px solid #fff; border-radius:50%;
+    width:26px; height:26px; display:flex; align-items:center; justify-content:center;
+    font:700 12px 'Segoe UI',sans-serif; box-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  @media (max-width:760px){
+    #app { flex-direction:column; }
+    #sidebar { width:100%; max-height:45vh; order:2; }
+    #map { min-height:55vh; order:1; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="sb-header">
+      <h1>Tour de Monte Rosa</h1>
+      <div class="sub">Alagna → Alagna &nbsp;·&nbsp; Mon 24 Aug – Wed 2 Sep 2026 &nbsp;·&nbsp; 10 days</div>
+    </div>
+    <div class="totals">
+      <div class="tot"><div class="v">174.9 km</div><div class="l">Distance</div></div>
+      <div class="tot"><div class="v">~72 h</div><div class="l">Walking</div></div>
+      <div class="tot"><div class="v">+11,443</div><div class="l">Ascent m</div></div>
+      <div class="tot"><div class="v">−12,740</div><div class="l">Descent m</div></div>
+    </div>
+    <div class="warn">⚠ Europaweg: Springelboden–Eggenstadel closed (rockfall, status Jun 2026). Day 7 detour via Täsch shown as red dashed line. Day 9 crosses the Theodul glacier — crampons.</div>
+    <div class="days" id="dayList"></div>
+    <div class="footer">Lines are indicative connections between waypoints, not exact GPS tracks. Click a day to zoom. Toggle Topo/Street basemap top-right.</div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+const stages = [
+ { day:1, date:"Mon 24.08", stage:"Stage 4", route:"Alagna (Alpe Gabiet) → Rif. Pastore", sleep:"Rifugio Pastore (1,575 m)",
+   km:18.3, h:7, up:990, dn:1765, color:"#e6553f",
+   // approximate: BRouter found no through-trail near these waypoints (sparse OSM path data above Alpe Gabiet); schematic curve, smoothed
+   pts:[[45.8542,7.937],[45.85475,7.9355],[45.85585,7.9325],[45.8575,7.928],[45.8597,7.922],[45.86151,7.91625],[45.86292,7.91075],[45.86394,7.9055],[45.86456,7.9005],[45.86531,7.8975],[45.86619,7.8965],[45.86719,7.8975],[45.86831,7.9005],[45.86953,7.90356],[45.87084,7.90669],[45.87225,7.90988],[45.87375,7.91312],[45.87561,7.91598],[45.87784,7.91844],[45.88042,7.92051],[45.88338,7.92219],[45.88559,7.92344],[45.88706,7.92428],[45.8878,7.9247]] },
+ { day:2, date:"Tue 25.08", stage:"Stage 5", route:"Rif. Pastore → Colle del Turlo → Macugnaga", sleep:"Hotel Signal, Macugnaga (1,310 m)",
+   km:22, h:7.3, up:1245, dn:1505, color:"#f28c28",
+   // approximate: BRouter timed out (server CPU watchdog) on every attempt for this stage; schematic curve, smoothed
+   pts:[[45.8878,7.9247],[45.88887,7.92528],[45.89102,7.92644],[45.89425,7.92819],[45.89855,7.93051],[45.90259,7.93313],[45.90636,7.93604],[45.90987,7.93925],[45.91313,7.94275],[45.91616,7.94591],[45.91897,7.94872],[45.92156,7.95119],[45.92394,7.95331],[45.92669,7.95488],[45.92981,7.95588],[45.93331,7.95631],[45.93719,7.95619],[45.94091,7.95528],[45.94447,7.95359],[45.94787,7.95113],[45.95113,7.94787],[45.95439,7.94678],[45.95768,7.94784],[45.96099,7.95106],[45.96431,7.95644],[45.96681,7.96047],[45.96847,7.96316],[45.9693,7.9645]] },
+ { day:3, date:"Wed 26.08", stage:"Stage 6", route:"Macugnaga → Monte Moro pass", sleep:"Rif. Oberto-Maroli (2,796 m)",
+   km:7.6, h:5, up:1503, dn:40, color:"#e8b93b",
+   // approximate: BRouter timed out (server CPU watchdog) on every attempt for this stage; schematic curve, smoothed
+   pts:[[45.9693,7.9645],[45.97009,7.96484],[45.97168,7.96553],[45.97406,7.96656],[45.97724,7.96794],[45.98043,7.96922],[45.98364,7.97041],[45.98687,7.9715],[45.99012,7.9725],[45.99338,7.97337],[45.99662,7.97412],[45.99988,7.97475],[46.00312,7.97525],[46.00556,7.97562],[46.00719,7.97588],[46.008,7.976]] },
+ { day:4, date:"Thu 27.08", stage:"Stage 7A", route:"Monte Moro → Mattmark → Saas-Fee (low route)", sleep:"wellnessHostel4000, Saas-Fee (1,800 m)",
+   km:17.2, h:6, up:300, dn:1295, color:"#7cb342",
+   // real trail: BRouter hiking-beta (OSM), simplified — 15.3km routed vs 17.2km stage estimate
+   pts:[[46.008,7.976],[46.00795,7.97486],[46.00803,7.97371],[46.00858,7.97345],[46.00879,7.97258],[46.00954,7.97203],[46.01061,7.97011],[46.01088,7.96823],[46.01135,7.96762],[46.0117,7.96758],[46.01181,7.96813],[46.01228,7.96742],[46.01338,7.96709],[46.0148,7.96602],[46.01633,7.96612],[46.01769,7.96591],[46.01801,7.96553],[46.01897,7.96567],[46.01899,7.96523],[46.01936,7.96501],[46.01924,7.96475],[46.01949,7.96443],[46.01978,7.96467],[46.01989,7.96537],[46.0215,7.9667],[46.02369,7.96693],[46.02479,7.9674],[46.02587,7.96715],[46.02693,7.9673],[46.03136,7.96555],[46.03389,7.96492],[46.03554,7.96479],[46.03702,7.96507],[46.03848,7.9648],[46.039,7.96519],[46.04156,7.96443],[46.04461,7.96486],[46.04558,7.96451],[46.04608,7.96485],[46.04751,7.96476],[46.05111,7.96362],[46.0521,7.96394],[46.05284,7.96341],[46.05396,7.96358],[46.05463,7.96287],[46.05446,7.96274],[46.05639,7.96171],[46.05606,7.96149],[46.05633,7.9612],[46.05609,7.96087],[46.05567,7.96074],[46.05728,7.9601],[46.05838,7.9611],[46.06174,7.96124],[46.06297,7.96188],[46.065,7.96087],[46.06498,7.96065],[46.06272,7.96031],[46.06231,7.95994],[46.0642,7.95817],[46.06569,7.95869],[46.06782,7.95848],[46.06886,7.95678],[46.07041,7.95643],[46.07596,7.95652],[46.07833,7.95695],[46.07988,7.95775],[46.08043,7.95776],[46.08241,7.95933],[46.08326,7.95847],[46.08472,7.95894],[46.08634,7.95725],[46.08842,7.95604],[46.09273,7.95638],[46.09449,7.95602],[46.09507,7.95486],[46.09569,7.95437],[46.0962,7.95276],[46.09773,7.95079],[46.09829,7.9496],[46.09837,7.94854],[46.09953,7.94698],[46.09996,7.94689],[46.10112,7.9455],[46.10236,7.945],[46.10512,7.94168],[46.10547,7.94096],[46.1063,7.94051],[46.1072,7.93786],[46.10748,7.9359],[46.10727,7.93418],[46.10755,7.93157],[46.10665,7.93001],[46.10666,7.9292],[46.10849,7.92875],[46.10909,7.92972]] },
+ { day:5, date:"Fri 28.08", stage:"Stage 9", route:"Saas-Fee → Balfrin Höhenweg → Grächen", sleep:"Room's chez BeNi, Grächen (1,620 m)",
+   km:20.3, h:7.3, up:995, dn:1180, color:"#26a69a",
+   // approximate: BRouter timed out (server CPU watchdog) on every attempt for this stage; schematic curve, smoothed
+   pts:[[46.1091,7.9297],[46.11009,7.92878],[46.11208,7.92694],[46.11506,7.92419],[46.11904,7.92051],[46.12327,7.91651],[46.12776,7.91217],[46.1325,7.9075],[46.1375,7.9025],[46.14231,7.89731],[46.14694,7.89194],[46.15138,7.88637],[46.15563,7.88063],[46.15981,7.87494],[46.16394,7.86931],[46.168,7.86375],[46.172,7.85825],[46.17575,7.85287],[46.17925,7.84762],[46.1825,7.8425],[46.1855,7.8375],[46.18808,7.83425],[46.19024,7.83275],[46.19199,7.833],[46.19331,7.835],[46.19431,7.8365],[46.19497,7.8375],[46.1953,7.838]] },
+ { day:6, date:"Sat 29.08", stage:"Stage 10", route:"Grächen → Europaweg → Europahütte", sleep:"Europahütte (2,265 m)",
+   km:17, h:7, up:1455, dn:805, color:"#29b6f6",
+   // real trail: BRouter hiking-beta (OSM), simplified — 17.0km routed vs 17km stage estimate
+   pts:[[46.19529,7.83802],[46.19506,7.83821],[46.1943,7.83723],[46.19312,7.83659],[46.19117,7.83482],[46.19045,7.83211],[46.1904,7.83116],[46.19121,7.82863],[46.19178,7.82769],[46.1895,7.82286],[46.18884,7.82248],[46.18896,7.82208],[46.18791,7.82124],[46.188,7.8208],[46.18663,7.81832],[46.18707,7.81767],[46.18632,7.81733],[46.18522,7.81732],[46.18405,7.81774],[46.18377,7.81709],[46.18388,7.81491],[46.18362,7.81365],[46.1826,7.81307],[46.18204,7.81178],[46.18079,7.8116],[46.1802,7.81053],[46.18036,7.81132],[46.18006,7.81202],[46.17966,7.81168],[46.17976,7.81212],[46.179,7.81159],[46.17922,7.81227],[46.17857,7.81212],[46.1776,7.81136],[46.17663,7.81187],[46.17644,7.81255],[46.17606,7.81271],[46.17562,7.81253],[46.17498,7.81163],[46.17393,7.81158],[46.17208,7.80966],[46.16996,7.8084],[46.16964,7.80771],[46.16773,7.80576],[46.16723,7.80473],[46.16616,7.80464],[46.16392,7.8037],[46.16361,7.80392],[46.16343,7.8046],[46.16262,7.80424],[46.16219,7.8044],[46.16106,7.80316],[46.15982,7.80258],[46.15938,7.80321],[46.15884,7.80329],[46.15746,7.80251],[46.15655,7.80139],[46.15526,7.80155],[46.15433,7.80093],[46.15337,7.80096],[46.15299,7.80142],[46.15283,7.80127],[46.15194,7.80178],[46.1502,7.80175],[46.14971,7.80139],[46.14954,7.80155],[46.14917,7.8011],[46.14907,7.8015],[46.14874,7.80162],[46.14861,7.80128],[46.14779,7.80106],[46.14736,7.80042],[46.14668,7.80047],[46.14599,7.80012],[46.14551,7.79936],[46.14557,7.7987],[46.14534,7.79844],[46.14484,7.79869],[46.14434,7.79847],[46.14436,7.79823],[46.1439,7.79858],[46.14317,7.79812],[46.14342,7.79757],[46.14312,7.79726],[46.14153,7.79758],[46.14131,7.79775],[46.14133,7.79848],[46.14111,7.79857],[46.14083,7.79794],[46.14008,7.79772],[46.13978,7.79733],[46.13724,7.79667],[46.13682,7.79579],[46.1352,7.79508],[46.13496,7.79421],[46.13431,7.79428],[46.13308,7.79512],[46.13355,7.79602],[46.13331,7.7964],[46.13342,7.79784],[46.13121,7.79776],[46.13029,7.79885],[46.12905,7.79834],[46.12887,7.79868],[46.12805,7.79708],[46.12599,7.79704],[46.12606,7.79616],[46.12539,7.79592],[46.12453,7.79391],[46.12397,7.79362],[46.12381,7.79277],[46.12426,7.79251],[46.12347,7.79148],[46.12361,7.7892],[46.12323,7.78894],[46.12332,7.78844],[46.12194,7.78835],[46.12331,7.78791],[46.1206,7.78775],[46.11896,7.78639],[46.11699,7.7854],[46.11497,7.7875],[46.11281,7.78754],[46.11171,7.78616],[46.11052,7.78595],[46.10956,7.78458],[46.10848,7.7836],[46.10696,7.78271],[46.10543,7.78125],[46.10451,7.78083],[46.10199,7.78088],[46.10207,7.7816],[46.10153,7.78285],[46.10153,7.78375],[46.10129,7.78399],[46.10235,7.78533],[46.1025,7.78626],[46.1028,7.78666],[46.10383,7.78686],[46.1049,7.7881],[46.10448,7.78792],[46.10382,7.78837],[46.10083,7.78858],[46.09906,7.78919]] },
+ { day:7, date:"Sun 30.08", stage:"Stage 11", route:"Europahütte → Täschalp → Zermatt", sleep:"Hotel Carina, Zermatt (1,620 m)",
+   km:19.5, h:7, up:765, dn:1420, color:"#5c6bc0",
+   // real trail: BRouter hiking-beta (OSM), simplified — 18.4km routed vs 19.5km stage estimate (Täschalp via-point dropped, no nearby path snap)
+   pts:[[46.09906,7.78919],[46.09859,7.78963],[46.098,7.78945],[46.09744,7.7901],[46.09718,7.78991],[46.09725,7.79039],[46.09309,7.79039],[46.0936,7.7898],[46.0929,7.7899],[46.09301,7.78928],[46.09265,7.78962],[46.09173,7.7889],[46.09231,7.7886],[46.09146,7.7879],[46.09104,7.78721],[46.0911,7.78696],[46.08998,7.78587],[46.0898,7.78496],[46.08898,7.78455],[46.08879,7.78333],[46.08819,7.78317],[46.08799,7.78269],[46.08674,7.7816],[46.08586,7.7813],[46.08564,7.78085],[46.08375,7.7814],[46.08307,7.78033],[46.08164,7.77948],[46.07902,7.7794],[46.07619,7.77865],[46.07467,7.7788],[46.07342,7.77847],[46.06947,7.77917],[46.06887,7.77952],[46.06762,7.77935],[46.0671,7.78056],[46.06748,7.78101],[46.06746,7.78183],[46.06787,7.78207],[46.06759,7.78349],[46.06805,7.78379],[46.06797,7.78458],[46.0688,7.78552],[46.06822,7.786],[46.06862,7.78611],[46.06877,7.7869],[46.06787,7.78795],[46.0679,7.78848],[46.06752,7.7886],[46.06742,7.78927],[46.06769,7.7897],[46.06711,7.79071],[46.06633,7.7912],[46.06635,7.79171],[46.06652,7.79129],[46.0665,7.79229],[46.06628,7.79295],[46.06548,7.79379],[46.06566,7.79512],[46.06471,7.79619],[46.06294,7.79937],[46.06312,7.79942],[46.0625,7.80111],[46.06258,7.80135],[46.06148,7.80413],[46.06121,7.80422],[46.06131,7.80453],[46.06106,7.80546],[46.06055,7.80655],[46.06044,7.8093],[46.05937,7.81013],[46.05895,7.81082],[46.05788,7.81056],[46.05793,7.80957],[46.05766,7.80992],[46.05769,7.80943],[46.05752,7.80951],[46.0577,7.8088],[46.05933,7.80576],[46.05958,7.80369],[46.06057,7.80077],[46.06101,7.79812],[46.06161,7.79613],[46.06179,7.79443],[46.06132,7.79337],[46.05666,7.79006],[46.0561,7.79013],[46.05542,7.79081],[46.05418,7.79053],[46.05257,7.7909],[46.05174,7.79035],[46.05145,7.79034],[46.05155,7.79066],[46.0494,7.78967],[46.04885,7.78901],[46.04794,7.78871],[46.04737,7.78749],[46.04621,7.78621],[46.04446,7.78542],[46.04334,7.78457],[46.04225,7.78308],[46.04059,7.77974],[46.03954,7.77867],[46.03948,7.77991],[46.03724,7.7779],[46.03657,7.77811],[46.03612,7.77762],[46.03569,7.7776],[46.03475,7.77797],[46.03313,7.77658],[46.03115,7.77679],[46.03048,7.77612],[46.02954,7.77436],[46.03145,7.77453],[46.03236,7.77378],[46.03537,7.77309],[46.03372,7.7725],[46.03164,7.77074],[46.02901,7.77047],[46.02843,7.76942],[46.0277,7.76962],[46.02616,7.76884],[46.0259,7.76838],[46.02603,7.76658],[46.02532,7.7665],[46.0251,7.76579],[46.02469,7.76575],[46.02379,7.76637],[46.02246,7.76638],[46.02142,7.76291],[46.02064,7.76162],[46.0227,7.75661],[46.02201,7.7543],[46.02151,7.75382],[46.0216,7.75261],[46.02126,7.75227],[46.0213,7.75187],[46.02104,7.75146],[46.02023,7.75161],[46.02002,7.75131],[46.02044,7.7505],[46.0207,7.7491]] },
+ { day:8, date:"Mon 31.08", stage:"Stage 1", route:"Zermatt → Furi → Gandegghütte", sleep:"Gandegghütte (3,030 m)",
+   km:10.5, h:5, up:1520, dn:80, color:"#ab47bc",
+   // real trail: BRouter hiking-beta (OSM), simplified — 6.7km routed vs 10.5km stage estimate (schematic likely overestimated switchbacks)
+   pts:[[46.0207,7.7491],[46.01964,7.74668],[46.01971,7.74617],[46.01929,7.74596],[46.01917,7.74551],[46.01781,7.74502],[46.01512,7.74157],[46.01293,7.74056],[46.01182,7.73966],[46.01069,7.73927],[46.00999,7.73935],[46.00996,7.73874],[46.00771,7.73691],[46.00722,7.73598],[46.00728,7.73538],[46.00694,7.73529],[46.00645,7.73369],[46.0061,7.73316],[46.00535,7.73338],[46.00514,7.73232],[46.00449,7.73285],[46.00301,7.73198],[46.0028,7.73158],[46.00241,7.73197],[46.00223,7.73166],[46.00193,7.73238],[46.00072,7.73277],[46.00045,7.73312],[46.00019,7.73454],[45.99996,7.7345],[45.99972,7.73381],[45.99975,7.73241],[45.99857,7.73254],[45.99836,7.73074],[45.9974,7.7302],[45.99725,7.7296],[45.99703,7.73071],[45.99728,7.7309],[45.99704,7.73118],[45.99712,7.73183],[45.99676,7.7327],[45.99662,7.73136],[45.99645,7.73158],[45.99618,7.731],[45.99629,7.73006],[45.99552,7.72951],[45.99529,7.72818],[45.99469,7.72723],[45.9931,7.72752],[45.99249,7.72865],[45.99243,7.72927],[45.99144,7.73096],[45.99031,7.7306],[45.98924,7.7309],[45.98934,7.73161],[45.98823,7.73444],[45.98736,7.73528],[45.98593,7.73604],[45.98449,7.73784],[45.98483,7.73821],[45.98449,7.73941],[45.98463,7.7396],[45.98432,7.74075],[45.9845,7.7435]] },
+ { day:9, date:"Tue 1.09", stage:"Stage 2", route:"Gandegghütte → Theodulpass → glacier → Resy", sleep:"Rif. Ferraro / Guide Frachey, Resy (2,070 m)",
+   km:20.5, h:8, up:890, dn:1890, color:"#ec407a",
+   // approximate: crosses the Theodul glacier — no digitized foot trail exists in OSM here; schematic curve, smoothed
+   pts:[[45.9845,7.7435],[45.98322,7.74191],[45.98066,7.73872],[45.97681,7.73394],[45.97169,7.72756],[45.96666,7.72222],[45.96172,7.71791],[45.95687,7.71462],[45.95213,7.71237],[45.94781,7.71113],[45.94394,7.71087],[45.9405,7.71162],[45.9375,7.71338],[45.9345,7.7155],[45.9315,7.718],[45.9285,7.72088],[45.9255,7.72412],[45.92225,7.72644],[45.91875,7.72781],[45.915,7.72825],[45.911,7.72775],[45.90675,7.72694],[45.90225,7.72581],[45.8975,7.72438],[45.8925,7.72262],[45.8875,7.72106],[45.8825,7.71969],[45.8775,7.7185],[45.8725,7.7175],[45.86769,7.71675],[45.86306,7.71625],[45.85863,7.716],[45.85437,7.716],[45.85119,7.716],[45.84906,7.716],[45.848,7.716]] },
+ { day:10, date:"Wed 2.09", stage:"Stage 3", route:"Resy → Rothorn → Stafal → Gabiet → Col d'Olen → Alagna", sleep:"Alagna (1,190 m) — end",
+   km:22, h:10, up:1780, dn:2760, color:"#8d6e63",
+   // approximate: BRouter timed out (server CPU watchdog) on every attempt for this stage; schematic curve, smoothed
+   pts:[[45.848,7.716],[45.84831,7.71813],[45.84894,7.72237],[45.84987,7.72875],[45.85113,7.73725],[45.85231,7.74544],[45.85344,7.75331],[45.8545,7.76088],[45.8555,7.76812],[45.85644,7.77487],[45.85731,7.78113],[45.85813,7.78688],[45.85887,7.79212],[45.85944,7.79781],[45.85981,7.80394],[45.86,7.8105],[45.86,7.8175],[45.85988,7.82412],[45.85962,7.83038],[45.85925,7.83625],[45.85875,7.84175],[45.85831,7.84694],[45.85794,7.85181],[45.85762,7.85637],[45.85737,7.86062],[45.85756,7.86481],[45.85819,7.86894],[45.85925,7.873],[45.86075,7.877],[45.86169,7.88138],[45.86206,7.88612],[45.86187,7.89125],[45.86113,7.89675],[45.86037,7.90181],[45.85963,7.90644],[45.85887,7.91063],[45.85813,7.91437],[45.85739,7.91825],[45.85666,7.92225],[45.85595,7.92638],[45.85525,7.93063],[45.85473,7.93381],[45.85437,7.93594],[45.8542,7.937]] },
+];
+
+// Europaweg closure detour (Day 7): descend Springelboden → Täsch → climb to Täschalp
+const detour = [[46.0930,7.7900],[46.0800,7.7830],[46.0670,7.7780],[46.0620,7.7950],[46.0590,7.8180]];
+
+const map = L.map('map', { zoomSnap:0.25 });
+const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+  maxZoom:17, attribution:'© OpenStreetMap contributors, SRTM | © OpenTopoMap (CC-BY-SA)'
+}).addTo(map);
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, attribution:'© OpenStreetMap contributors'
+});
+L.control.layers({ 'Topographic':topo, 'Street':osm }, null, { position:'topright' }).addTo(map);
+L.control.scale({ imperial:false }).addTo(map);
+
+function popupHtml(s){
+  return `<div class="pt">Day ${s.day} · ${s.stage}</div>
+    <div class="pd">${s.date}</div>
+    <b>${s.route}</b><br>
+    🛏 ${s.sleep}<br>
+    📏 ${s.km} km &nbsp; ⏱ ${s.h} h<br>
+    ↗ +${s.up.toLocaleString()} m &nbsp; ↘ −${s.dn.toLocaleString()} m`;
+}
+
+const lines = [], markers = [];
+const allBounds = L.latLngBounds([]);
+
+stages.forEach((s, i) => {
+  // casing for readability
+  L.polyline(s.pts, { color:'#ffffff', weight:7, opacity:0.7 }).addTo(map);
+  const line = L.polyline(s.pts, { color:s.color, weight:4, opacity:0.95 })
+    .bindPopup(popupHtml(s)).addTo(map);
+  line.on('click', () => selectDay(i, false));
+  lines.push(line);
+  s.pts.forEach(p => allBounds.extend(p));
+
+  // overnight marker at end of stage
+  const end = s.pts[s.pts.length-1];
+  const icon = L.divIcon({ className:'', html:`<div class="num-icon" style="background:${s.color}">${s.day}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
+  const m = L.marker(end, { icon }).bindPopup(popupHtml(s)).addTo(map);
+  m.on('click', () => selectDay(i, false));
+  markers.push(m);
+});
+
+// start flag at Alagna
+L.marker([45.8542,7.9370], {
+  icon: L.divIcon({ className:'', html:'<div class="num-icon" style="background:#1a2634;width:auto;padding:0 8px;border-radius:12px;font-size:11px">START / END · Alagna</div>', iconSize:null, iconAnchor:[40,34] })
+}).addTo(map);
+
+// detour dashed line
+L.polyline(detour, { color:'#d32f2f', weight:3, dashArray:'7 7', opacity:0.95 })
+  .bindPopup('<b>Europaweg closure detour</b><br>Springelboden–Eggenstadel section closed (rockfall).<br>Descend to Täsch, re-ascend to Täschalp — or walk the valley path Täsch → Zermatt.<br><i>Check status before departure.</i>')
+  .addTo(map);
+
+map.fitBounds(allBounds.pad(0.06));
+
+// sidebar
+const list = document.getElementById('dayList');
+stages.forEach((s, i) => {
+  const d = document.createElement('div');
+  d.className = 'day'; d.id = 'day'+i;
+  d.style.borderLeftColor = s.color;
+  d.innerHTML = `
+    <div class="top">
+      <span class="num" style="background:${s.color}">Day ${s.day}</span>
+      <span class="date">${s.date}</span>
+      <span class="stage">${s.stage}</span>
+    </div>
+    <div class="route">${s.route}</div>
+    <div class="sleep">🛏 ${s.sleep}</div>
+    <div class="stats"><span><b>${s.km}</b> km</span><span><b>${s.h}</b> h</span><span>↗ <b>+${s.up.toLocaleString()}</b></span><span>↘ <b>−${s.dn.toLocaleString()}</b></span></div>`;
+  d.addEventListener('click', () => selectDay(i, true));
+  list.appendChild(d);
+});
+
+let activeIdx = -1;
+function selectDay(i, zoom){
+  if (activeIdx >= 0) {
+    document.getElementById('day'+activeIdx).classList.remove('active');
+    lines[activeIdx].setStyle({ weight:4 });
+  }
+  activeIdx = i;
+  const card = document.getElementById('day'+i);
+  card.classList.add('active');
+  card.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  lines[i].setStyle({ weight:6 });
+  if (zoom) {
+    map.fitBounds(lines[i].getBounds().pad(0.25));
+    markers[i].openPopup();
+  }
+}
+</script>
+</body>
+</html>
