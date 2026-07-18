@@ -56,6 +56,16 @@
   }
   .leaflet-tooltip.sleep-label::before { border-right-color:#1a2634; border-left-color:#1a2634; }
   .sleep-label-bed { border-left:3px solid; padding-left:6px; }
+  .locate-btn {
+    background:#fff; width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+    font-size:17px; cursor:pointer; box-shadow:0 1px 5px rgba(0,0,0,.4);
+  }
+  .locate-btn.active { background:#e6f0ff; }
+  .locate-btn.error { background:#fde0e0; }
+  .you-dot {
+    width:16px; height:16px; border-radius:50%; background:#1e88e5; border:3px solid #fff;
+    box-shadow:0 0 0 2px rgba(30,136,229,.5), 0 1px 4px rgba(0,0,0,.5);
+  }
   @media (max-width:760px){
     #app { flex-direction:column; }
     #sidebar { width:100%; max-height:45vh; order:2; }
@@ -144,6 +154,58 @@ const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 });
 L.control.layers({ 'Topographic':topo, 'Street':osm }, null, { position:'topright' }).addTo(map);
 L.control.scale({ imperial:false }).addTo(map);
+
+// "Locate me" — shows live GPS position with an accuracy circle. Needs HTTPS (works on GitHub Pages) and user permission.
+const LocateControl = L.Control.extend({
+  options:{ position:'topright' },
+  onAdd(){
+    const btn = L.DomUtil.create('div', 'locate-btn leaflet-bar');
+    btn.innerHTML = '📍';
+    btn.title = 'Show my location on the trail';
+    L.DomEvent.disableClickPropagation(btn);
+    L.DomEvent.on(btn, 'click', () => toggleLocate(btn));
+    this._btn = btn;
+    return btn;
+  }
+});
+map.addControl(new LocateControl());
+
+let youMarker = null, youAccuracy = null, watchingLocation = false;
+
+function toggleLocate(btn){
+  if (!navigator.geolocation) { btn.classList.add('error'); btn.title = 'Geolocation is not supported by this browser'; return; }
+  if (watchingLocation) {
+    map.stopLocate();
+    watchingLocation = false;
+    btn.classList.remove('active');
+    if (youMarker) { map.removeLayer(youMarker); youMarker = null; }
+    if (youAccuracy) { map.removeLayer(youAccuracy); youAccuracy = null; }
+    return;
+  }
+  btn.classList.remove('error');
+  map.locate({ watch:true, enableHighAccuracy:true, setView:true, maxZoom:16 });
+  watchingLocation = true;
+  btn.classList.add('active');
+}
+
+map.on('locationfound', (e) => {
+  if (!youMarker) {
+    youMarker = L.marker(e.latlng, {
+      icon: L.divIcon({ className:'', html:'<div class="you-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] }),
+      zIndexOffset: 1000
+    }).addTo(map);
+    youAccuracy = L.circle(e.latlng, { radius:e.accuracy, color:'#1e88e5', weight:1, fillOpacity:0.12 }).addTo(map);
+  } else {
+    youMarker.setLatLng(e.latlng);
+    youAccuracy.setLatLng(e.latlng).setRadius(e.accuracy);
+  }
+});
+
+map.on('locationerror', (e) => {
+  watchingLocation = false;
+  const btn = document.querySelector('.locate-btn');
+  if (btn) { btn.classList.remove('active'); btn.classList.add('error'); btn.title = 'Could not get your location: ' + e.message; }
+});
 
 function popupHtml(s){
   return `<div class="pt">Day ${s.day} · ${s.stage}</div>
