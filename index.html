@@ -40,15 +40,40 @@
   .day .sleep { font-size:11.5px; color:#a9bccd; margin-bottom:4px; }
   .day .stats { font-size:11px; color:#8fa3b8; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .day .stats b { color:#c9d6e2; font-weight:600; }
-  .offline-btn {
-    margin-left:auto; background:#233246; border:1px solid #35496190; border-radius:5px;
-    padding:2px 7px; font-size:10.5px; color:#8fa3b8; cursor:pointer; white-space:nowrap;
-  }
-  .offline-btn:hover { background:#2a3d55; color:#c9d6e2; }
-  .offline-btn.busy { opacity:0.6; pointer-events:none; }
-  .offline-status { font-size:10.5px; color:#7fd08a; white-space:nowrap; }
-  .offline-status.err { color:#e08a8a; }
   .footer { padding:9px 18px; font-size:10.5px; color:#5f7590; border-top:1px solid #2e3f52; line-height:1.4; }
+  .offline-backdrop {
+    position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1998; opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  .offline-backdrop.open { opacity:1; pointer-events:auto; }
+  .offline-panel {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-45%) scale(.96); opacity:0; pointer-events:none;
+    width:92%; max-width:440px; max-height:82vh; overflow-y:auto; display:flex; flex-direction:column;
+    background:#1a2634; color:#e8edf2; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.6);
+    z-index:1999; transition:opacity .2s, transform .2s; font-family:'Segoe UI', system-ui, sans-serif;
+  }
+  .offline-panel.open { opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1); }
+  .off-header { display:flex; align-items:center; justify-content:space-between; padding:16px 18px 10px; border-bottom:1px solid #2e3f52; flex-shrink:0; }
+  .off-header h2 { font-size:16px; font-weight:600; }
+  .off-close { cursor:pointer; font-size:16px; color:#8fa3b8; padding:4px 8px; }
+  .off-note { font-size:11.5px; color:#8fa3b8; padding:10px 18px; line-height:1.45; border-bottom:1px solid #2e3f52; flex-shrink:0; }
+  .off-all-btn {
+    margin:12px 18px; background:#233246; border:1px solid #35496190; border-radius:6px; padding:8px 12px;
+    text-align:center; font-size:12.5px; font-weight:600; color:#c9d6e2; cursor:pointer; flex-shrink:0;
+  }
+  .off-all-btn:hover { background:#2a3d55; }
+  .off-all-btn.busy { opacity:.6; pointer-events:none; }
+  .off-row { display:flex; align-items:center; gap:10px; padding:10px 18px; border-bottom:1px solid #223146; }
+  .off-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .off-info { flex:1; min-width:0; }
+  .off-title { font-size:12.5px; font-weight:600; line-height:1.3; }
+  .off-sub { font-size:11px; color:#8fa3b8; margin-top:2px; }
+  .off-sub.err { color:#e08a8a; }
+  .off-action {
+    flex-shrink:0; background:#233246; border:1px solid #35496190; border-radius:5px; padding:5px 10px;
+    font-size:11px; font-weight:600; color:#c9d6e2; cursor:pointer; white-space:nowrap;
+  }
+  .off-action:hover { background:#2a3d55; }
+  .off-action.busy { opacity:.6; pointer-events:none; }
   .leaflet-popup-content { font-size:12.5px; line-height:1.5; margin:12px 14px; }
   .leaflet-popup-content .pt { font-weight:700; font-size:13px; margin-bottom:2px; }
   .leaflet-popup-content .pd { color:#667; font-size:11px; margin-bottom:5px; }
@@ -125,10 +150,18 @@
     </div>
     <div class="warn">⚠ Day 7's real hiked distance (≈22km: bridge out-and-back + Täsch→Täschalp + Täschalp→Zermatt) is well above the 14km/6.5h estimate — worth double-checking against the train timetable. Day 9 crosses the Theodul glacier — crampons.</div>
     <div class="days" id="dayList"></div>
-    <div class="footer">Lines are indicative connections between waypoints, not exact GPS tracks. Click a day to zoom. Toggle Topo/Street basemap top-right. On hotel WiFi, tap "⬇ Offline" on a day to cache its map for use with no signal on trail (GPS locate itself needs no signal — only the map tiles do).</div>
+    <div class="footer">Lines are indicative connections between waypoints, not exact GPS tracks. Click a day to zoom. Toggle Topo/Street basemap top-right. Tap 📥 top-right for offline maps.</div>
   </div>
   <div id="map"></div>
   <div class="sidebar-toggle" id="sidebarToggle">📋 Itinerary</div>
+</div>
+
+<div class="offline-backdrop" id="offlineBackdrop"></div>
+<div class="offline-panel" id="offlinePanel">
+  <div class="off-header"><h2>Offline Maps</h2><span class="off-close" id="offlineClose">✕</span></div>
+  <div class="off-note">Download a day's map on WiFi so the terrain still renders with no signal on trail. GPS locate always works without signal — this only covers the visual map underneath it.</div>
+  <div class="off-all-btn" id="offDownloadAll">Download all remaining</div>
+  <div id="offlineList"></div>
 </div>
 
 <script>
@@ -294,47 +327,153 @@ function topoTileUrl(z, x, y){
   return `https://${s}.tile.opentopomap.org/${z}/${x}/${y}.png`;
 }
 
-async function cacheStageOffline(i, btn){
+function getStageTileUrls(i){
   const s = stages[i];
-  const statusEl = document.getElementById('offlineStatus'+i);
-  if (!navigator.serviceWorker) { statusEl.textContent = 'not supported'; statusEl.classList.add('err'); return; }
-  btn.classList.add('busy'); btn.textContent = '⬇ …';
-  statusEl.classList.remove('err');
-  statusEl.textContent = 'preparing…';
+  const tiles = new Map();
+  [13, 14, 15].forEach(z => {
+    s.pts.forEach(([lat, lon]) => {
+      const [x, y] = tileXY(lat, lon, z);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const key = `${z}/${x+dx}/${y+dy}`;
+        if (!tiles.has(key)) tiles.set(key, topoTileUrl(z, x+dx, y+dy));
+      }
+    });
+  });
+  return [...tiles.values()];
+}
+
+const OFFLINE_MANIFEST_KEY = 'tmr-offline-manifest';
+function loadOfflineManifest(){ try { return JSON.parse(localStorage.getItem(OFFLINE_MANIFEST_KEY) || '{}'); } catch (e) { return {}; } }
+function saveOfflineManifest(m){ localStorage.setItem(OFFLINE_MANIFEST_KEY, JSON.stringify(m)); }
+
+async function isStageCached(i){
+  const urls = getStageTileUrls(i);
+  if (!urls.length || !('caches' in window)) return false;
+  const cache = await caches.open('tmr-v1');
+  return !!(await cache.match(urls[0]));
+}
+
+function offRowHtml(s, i, cached){
+  const sizeMb = (getStageTileUrls(i).length * 18 / 1024).toFixed(1);
+  return `<div class="off-row">
+    <span class="off-dot" style="background:${s.color}"></span>
+    <div class="off-info">
+      <div class="off-title">Day ${s.day} · ${s.route}</div>
+      <div class="off-sub" id="offSub${i}">${cached ? `✓ Downloaded · ≈${sizeMb} MB` : `Not downloaded · ≈${sizeMb} MB`}</div>
+    </div>
+    <span class="off-action" data-i="${i}" data-mode="${cached ? 'remove' : 'download'}">${cached ? 'Remove' : 'Download'}</span>
+  </div>`;
+}
+
+async function renderOfflineList(){
+  const listEl = document.getElementById('offlineList');
+  const manifest = loadOfflineManifest();
+  const rows = await Promise.all(stages.map(async (s, i) => {
+    const wasMarked = !!manifest[i];
+    const cachedNow = wasMarked && await isStageCached(i);
+    if (wasMarked && !cachedNow) delete manifest[i]; // browser evicted the cache since we last checked
+    return { s, i, cached: cachedNow };
+  }));
+  saveOfflineManifest(manifest);
+  listEl.innerHTML = rows.map(({ s, i, cached }) => offRowHtml(s, i, cached)).join('');
+  listEl.querySelectorAll('.off-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.i, 10);
+      if (btn.dataset.mode === 'download') downloadStage(i, btn); else removeStage(i, btn);
+    });
+  });
+}
+
+async function downloadStage(i, btn){
+  const subEl = document.getElementById('offSub'+i);
+  if (!navigator.serviceWorker) { subEl.textContent = 'not supported on this browser'; subEl.classList.add('err'); return; }
+  btn.classList.add('busy'); btn.textContent = '…';
+  subEl.classList.remove('err');
   try {
     await swReady;
-    const tiles = new Map();
-    [13, 14, 15].forEach(z => {
-      s.pts.forEach(([lat, lon]) => {
-        const [x, y] = tileXY(lat, lon, z);
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-          const key = `${z}/${x+dx}/${y+dy}`;
-          if (!tiles.has(key)) tiles.set(key, topoTileUrl(z, x+dx, y+dy));
-        }
-      });
-    });
-    const urls = [...tiles.values()];
-    let done = 0, failed = 0;
-    statusEl.textContent = `caching 0/${urls.length}`;
-    let idx = 0;
+    const urls = getStageTileUrls(i);
+    let done = 0, failed = 0, idx = 0;
+    subEl.textContent = `caching 0/${urls.length}`;
     async function worker(){
       while (idx < urls.length) {
         const u = urls[idx++];
         try { const r = await fetch(u, { mode: 'no-cors' }); if (!r.ok && r.type !== 'opaque') failed++; } catch (e) { failed++; }
         done++;
-        statusEl.textContent = `caching ${done}/${urls.length}`;
+        subEl.textContent = `caching ${done}/${urls.length}`;
       }
     }
     await Promise.all(Array.from({ length: 6 }, worker));
-    statusEl.textContent = failed ? `✓ cached (${failed} failed)` : `✓ cached (${urls.length} tiles)`;
-    if (failed) statusEl.classList.add('err');
+    const sizeMb = (urls.length * 18 / 1024).toFixed(1);
+    subEl.textContent = failed ? `✓ downloaded (${failed} failed) · ≈${sizeMb} MB` : `✓ Downloaded · ≈${sizeMb} MB`;
+    if (failed) subEl.classList.add('err');
+    const manifest = loadOfflineManifest();
+    manifest[i] = { count: urls.length, ts: Date.now() };
+    saveOfflineManifest(manifest);
+    btn.textContent = 'Remove'; btn.dataset.mode = 'remove';
   } catch (err) {
-    statusEl.textContent = 'failed — try again on WiFi';
-    statusEl.classList.add('err');
+    subEl.textContent = 'failed — try again on WiFi';
+    subEl.classList.add('err');
   } finally {
-    btn.classList.remove('busy'); btn.textContent = '⬇ Offline';
+    btn.classList.remove('busy');
   }
 }
+
+async function removeStage(i, btn){
+  const subEl = document.getElementById('offSub'+i);
+  btn.classList.add('busy'); btn.textContent = '…';
+  const urls = getStageTileUrls(i);
+  const cache = await caches.open('tmr-v1');
+  await Promise.all(urls.map(u => cache.delete(u)));
+  const manifest = loadOfflineManifest();
+  delete manifest[i];
+  saveOfflineManifest(manifest);
+  const sizeMb = (urls.length * 18 / 1024).toFixed(1);
+  subEl.textContent = `Not downloaded · ≈${sizeMb} MB`;
+  subEl.classList.remove('err');
+  btn.textContent = 'Download'; btn.dataset.mode = 'download';
+  btn.classList.remove('busy');
+}
+
+async function downloadAllRemaining(){
+  const allBtn = document.getElementById('offDownloadAll');
+  allBtn.classList.add('busy'); allBtn.textContent = 'Downloading…';
+  const manifest = loadOfflineManifest();
+  for (let i = 0; i < stages.length; i++) {
+    if (manifest[i]) continue;
+    const btn = document.querySelector(`.off-action[data-i="${i}"]`);
+    if (btn && btn.dataset.mode === 'download') await downloadStage(i, btn);
+  }
+  allBtn.classList.remove('busy'); allBtn.textContent = 'Download all remaining';
+}
+
+const OfflineControl = L.Control.extend({
+  options:{ position:'topright' },
+  onAdd(){
+    const wrap = L.DomUtil.create('div');
+    const btn = L.DomUtil.create('div', 'locate-btn leaflet-bar', wrap);
+    btn.innerHTML = '📥';
+    btn.title = 'Offline maps';
+    L.DomEvent.disableClickPropagation(wrap);
+    L.DomEvent.on(btn, 'click', openOfflinePanel);
+    return wrap;
+  }
+});
+map.addControl(new OfflineControl());
+
+const offlinePanelEl = document.getElementById('offlinePanel');
+const offlineBackdropEl = document.getElementById('offlineBackdrop');
+function openOfflinePanel(){
+  offlinePanelEl.classList.add('open');
+  offlineBackdropEl.classList.add('open');
+  renderOfflineList();
+}
+function closeOfflinePanel(){
+  offlinePanelEl.classList.remove('open');
+  offlineBackdropEl.classList.remove('open');
+}
+document.getElementById('offlineClose').addEventListener('click', closeOfflinePanel);
+offlineBackdropEl.addEventListener('click', closeOfflinePanel);
+document.getElementById('offDownloadAll').addEventListener('click', downloadAllRemaining);
 
 function popupHtml(s){
   return `<div class="pt">Day ${s.day} · ${s.stage}</div>
@@ -399,16 +538,9 @@ stages.forEach((s, i) => {
     </div>
     <div class="route">${s.route}</div>
     <div class="sleep">🛏 ${s.sleep}</div>
-    <div class="stats"><span><b>${s.km}</b> km</span><span><b>${s.h}</b> h</span><span>↗ <b>+${s.up.toLocaleString()}</b></span><span>↘ <b>−${s.dn.toLocaleString()}</b></span><span class="offline-btn" data-i="${i}">⬇ Offline</span><span class="offline-status" id="offlineStatus${i}"></span></div>`;
+    <div class="stats"><span><b>${s.km}</b> km</span><span><b>${s.h}</b> h</span><span>↗ <b>+${s.up.toLocaleString()}</b></span><span>↘ <b>−${s.dn.toLocaleString()}</b></span></div>`;
   d.addEventListener('click', () => selectDay(i, true));
   list.appendChild(d);
-});
-
-list.querySelectorAll('.offline-btn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    cacheStageOffline(parseInt(btn.dataset.i, 10), btn);
-  });
 });
 
 let activeIdx = -1;
