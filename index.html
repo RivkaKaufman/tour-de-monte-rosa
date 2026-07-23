@@ -353,15 +353,19 @@ async function isStageCached(i){
   return !!(await cache.match(urls[0]));
 }
 
-function offRowHtml(s, i, cached){
+function offRowHtml(s, i, cached, failedCount){
   const sizeMb = (getStageTileUrls(i).length * 18 / 1024).toFixed(1);
+  let sub, mode, label;
+  if (!cached) { sub = `Not downloaded · ≈${sizeMb} MB`; mode = 'download'; label = 'Download'; }
+  else if (failedCount > 0) { sub = `✓ Downloaded (${failedCount} tiles missing) · ≈${sizeMb} MB`; mode = 'retry'; label = 'Retry'; }
+  else { sub = `✓ Downloaded · ≈${sizeMb} MB`; mode = 'remove'; label = 'Remove'; }
   return `<div class="off-row">
     <span class="off-dot" style="background:${s.color}"></span>
     <div class="off-info">
       <div class="off-title">Day ${s.day} · ${s.route}</div>
-      <div class="off-sub" id="offSub${i}">${cached ? `✓ Downloaded · ≈${sizeMb} MB` : `Not downloaded · ≈${sizeMb} MB`}</div>
+      <div class="off-sub${failedCount > 0 ? ' err' : ''}" id="offSub${i}">${sub}</div>
     </div>
-    <span class="off-action" data-i="${i}" data-mode="${cached ? 'remove' : 'download'}">${cached ? 'Remove' : 'Download'}</span>
+    <span class="off-action" data-i="${i}" data-mode="${mode}">${label}</span>
   </div>`;
 }
 
@@ -369,19 +373,34 @@ async function renderOfflineList(){
   const listEl = document.getElementById('offlineList');
   const manifest = loadOfflineManifest();
   const rows = await Promise.all(stages.map(async (s, i) => {
-    const wasMarked = !!manifest[i];
-    const cachedNow = wasMarked && await isStageCached(i);
-    if (wasMarked && !cachedNow) delete manifest[i]; // browser evicted the cache since we last checked
-    return { s, i, cached: cachedNow };
+    const entry = manifest[i];
+    const cachedNow = !!entry && await isStageCached(i);
+    if (entry && !cachedNow) delete manifest[i]; // browser evicted the cache since we last checked
+    return { s, i, cached: cachedNow, failed: cachedNow ? (entry.failed || 0) : 0 };
   }));
   saveOfflineManifest(manifest);
-  listEl.innerHTML = rows.map(({ s, i, cached }) => offRowHtml(s, i, cached)).join('');
+  listEl.innerHTML = rows.map(({ s, i, cached, failed }) => offRowHtml(s, i, cached, failed)).join('');
   listEl.querySelectorAll('.off-action').forEach(btn => {
     btn.addEventListener('click', () => {
       const i = parseInt(btn.dataset.i, 10);
-      if (btn.dataset.mode === 'download') downloadStage(i, btn); else removeStage(i, btn);
+      const mode = btn.dataset.mode;
+      if (mode === 'download' || mode === 'retry') downloadStage(i, btn); else removeStage(i, btn);
     });
   });
+}
+
+// mobile networks (hotel WiFi, marginal cell signal) drop occasional requests under concurrent load —
+// retry each tile a few times with backoff before counting it as a real failure, rather than giving up on
+// the first hiccup and silently leaving gaps in the offline map.
+async function fetchTileWithRetry(u, attempts){
+  for (let a = 0; a < attempts; a++) {
+    try {
+      const r = await fetch(u, { mode: 'no-cors' });
+      if (r.ok || r.type === 'opaque') return true;
+    } catch (e) { /* fall through to retry */ }
+    if (a < attempts - 1) await new Promise(res => setTimeout(res, 400 * (a + 1)));
+  }
+  return false;
 }
 
 async function downloadStage(i, btn){
@@ -397,19 +416,21 @@ async function downloadStage(i, btn){
     async function worker(){
       while (idx < urls.length) {
         const u = urls[idx++];
-        try { const r = await fetch(u, { mode: 'no-cors' }); if (!r.ok && r.type !== 'opaque') failed++; } catch (e) { failed++; }
+        const ok = await fetchTileWithRetry(u, 3);
+        if (!ok) failed++;
         done++;
         subEl.textContent = `caching ${done}/${urls.length}`;
       }
     }
-    await Promise.all(Array.from({ length: 6 }, worker));
+    await Promise.all(Array.from({ length: 4 }, worker));
     const sizeMb = (urls.length * 18 / 1024).toFixed(1);
-    subEl.textContent = failed ? `✓ downloaded (${failed} failed) · ≈${sizeMb} MB` : `✓ Downloaded · ≈${sizeMb} MB`;
-    if (failed) subEl.classList.add('err');
+    subEl.textContent = failed ? `✓ Downloaded (${failed} tiles missing) · ≈${sizeMb} MB` : `✓ Downloaded · ≈${sizeMb} MB`;
+    subEl.classList.toggle('err', failed > 0);
     const manifest = loadOfflineManifest();
-    manifest[i] = { count: urls.length, ts: Date.now() };
+    manifest[i] = { count: urls.length, failed, ts: Date.now() };
     saveOfflineManifest(manifest);
-    btn.textContent = 'Remove'; btn.dataset.mode = 'remove';
+    btn.textContent = failed > 0 ? 'Retry' : 'Remove';
+    btn.dataset.mode = failed > 0 ? 'retry' : 'remove';
   } catch (err) {
     subEl.textContent = 'failed — try again on WiFi';
     subEl.classList.add('err');
@@ -439,9 +460,9 @@ async function downloadAllRemaining(){
   allBtn.classList.add('busy'); allBtn.textContent = 'Downloading…';
   const manifest = loadOfflineManifest();
   for (let i = 0; i < stages.length; i++) {
-    if (manifest[i]) continue;
+    if (manifest[i] && !manifest[i].failed) continue;
     const btn = document.querySelector(`.off-action[data-i="${i}"]`);
-    if (btn && btn.dataset.mode === 'download') await downloadStage(i, btn);
+    if (btn && (btn.dataset.mode === 'download' || btn.dataset.mode === 'retry')) await downloadStage(i, btn);
   }
   allBtn.classList.remove('busy'); allBtn.textContent = 'Download all remaining';
 }
